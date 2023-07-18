@@ -1,0 +1,318 @@
+import { useState, useEffect, useMemo } from "react";
+import { TabView, TabPanel } from "primereact/tabview";
+import { Calendar } from "primereact/calendar";
+import { Dropdown } from "primereact/dropdown";
+import { DataTable } from "primereact/datatable";
+import { Column } from "primereact/column";
+import { Button } from "primereact/button";
+import { Tooltip } from "primereact/tooltip";
+import axios from "axios";
+import { buildQueries } from "@testing-library/react";
+import { useCallback } from "react";
+import { UNSAFE_RouteContext } from "react-router-dom";
+
+
+function PerformanceStation() {
+  const [month, setMonth] = useState(null);
+  const [datesMonth, setDatesMonth] = useState(null);
+  const [critère, setCritère] = useState("");
+  const [typeMessage, setTypeMessage] = useState("");
+  const [columns, setColumns] = useState([]);
+  const [date, setDate] = useState(null);
+  const [date2, setDate2] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [stat, setStat] = useState([]);
+
+  const critères = [
+    { name: "Taux de production", value: "tauxProd" },
+    { name: "Manquants", value: "manquants" },
+    { name: "Retards", value: "retards" },
+  ];
+
+  const types_message = [
+    { name: "SYNOP", value: "SM" },
+    { name: "METAR", value: "SA" },
+    { name: "SYNOP INTERMEDIAR", value: "SI" },
+  ];
+
+  // let notmet = null;
+  const [notmet, setNotmet] = useState(null);
+  //calculate les manquants :
+  useEffect(() => {
+    /* axios.get(`http://10.16.50.36:8000/notmet/test?date=${"2023-06-16"}&&station=${"2c1f2b0d-7896-4e58-a80e-e14c18051454"}`).then((response) => {
+      console.log("-------test test jhh------",response.data)
+      setNotmet(response.data[0]);
+    })*/
+    /*get first an notmet from filter of notmet( notmet contains : {  
+        "idNotMET": "7009238e-c828-4c97-8716-0e600fa2e550",
+        "dateDebut": "2023-06-11",
+        "dateFin": "2023-06-22",
+        "nv_prevuM": 2,
+        "nv_prevuS": 2,
+        "nv_prevuT": 0,
+        "station": "2c1f2b0d-7896-4e58-a80e-e14c18051454"
+     })
+    */
+    //add
+  }, []);
+
+  useEffect(() => {
+    const dateTransformed = new Date(date)
+      .toLocaleDateString("pt-br")
+      .split("/")
+      .reverse()
+      .join("-");
+    const dateTransformed2 = new Date(date2)
+      .toLocaleDateString("pt-br")
+      .split("/")
+      .reverse()
+      .join("-");
+    const url = `http://10.16.50.36:8000/message/filtre?type_observation=${typeMessage}&&to_date=${dateTransformed2}&&from_date=${dateTransformed}`;
+
+    axios.get(url).then((response) => {
+      setStat(response.data);
+      setColumns([
+        { field: "classification", header: "classification" },
+        { field: "region.nomRegion", header: "Region" },
+        { field: "nomStation", header: "Nom de station" },
+        { field: "codeOACI", header: "code OMM" },
+        { field: "codeOMM", header: "code OACI" },
+      ]);
+    });
+    setLoading(false);
+  }, [typeMessage, date, date2]);
+
+  const getMsgPrevuField = (typeMessage) => {
+    switch (typeMessage) {
+      case "SM":
+        return "prevuS";
+      case "SA":
+        return "prevuM";
+      default:
+        return "";
+    }
+  };
+
+  function groupBy(arr, property) {
+    return arr.reduce((groups, item) => {
+      const group = groups.find(
+        (group) =>
+          group.key === item[property.split(".")[0]][property.split(".")[1]]
+      );
+      if (group) {
+        group.values.push(item);
+      } else {
+        groups.push({
+          key: item[property.split(".")[0]][property.split(".")[1]],
+          station: item[property.split(".")[0]],
+          values: [item],
+        });
+      }
+      return groups;
+    }, []);
+  }
+
+  const groupedDataMessage = groupBy(stat, "station.nomStation").map(
+    (group) => ({
+      values: Array.from(new Set(group.values)), // Remove duplicates using Set
+      nomStation: group.station.nomStation,
+      codeOACI: group.station.codeOACI,
+      codeOMM: group.station.codeOMM,
+      prevuM: group.station.prevuM,
+      prevuS: group.station.prevuS,
+      prevuT: group.station.prevuT,
+      region: group.station.region,
+      recu: group.values.length,
+    })
+  );
+
+  function getItem(notmet2, item, prevuField){
+    let prevu ;
+    const recu = item.recu;
+    let obj;
+    if(notmet2!== undefined) { 
+      if(prevuField === "SM") { 
+         prevu = notmet2.nv_prevuS;
+        obj = {
+          ...item,
+          manquants: notmet2?.nv_prevuS - recu,
+          tauxProd: ((recu / notmet2?.nv_prevuS) * 100).toFixed(2),
+        };
+       }
+       else if(prevuField === "SA" && notmet2!== undefined )
+               prevu = notmet2.nv_prevuM;  
+               obj = {
+                  ...item,
+                  manquants: notmet2?.nv_prevuM - recu,
+                  tauxProd: ((recu / notmet2?.nv_prevuM) * 100).toFixed(2),
+                }; 
+          }
+    else if(notmet2 == undefined) {
+      prevu = item[prevuField]
+      obj = {
+        ...item,
+        manquants: item[prevuField] - recu,
+        tauxProd: ((recu / item[prevuField]) * 100).toFixed(2),
+      };
+     }
+     return(obj)
+  }
+  const fetchData = async (url, item, prevuField) => {
+    try {
+      const response = await axios.get(url);
+      let notmet2 = response.data[0];
+      const itemobj = getItem(notmet2, item, prevuField);
+      if(itemobj) return itemobj;
+    } catch (error) {
+      console.error('Error:', error);
+      throw error;
+    }
+  };
+  const [data, setData] = useState([]);
+  const  asynData = useCallback((groupedDataMessage) => { 
+    console.log("getmessagedata",groupedDataMessage)
+    if(!groupedDataMessage) return;
+    const groupedData2 = (groupedDataMessage.map(async(item) => {
+        const prevuField = getMsgPrevuField(typeMessage);
+        const stationId = item.values[0].station.idStation;
+        const recu = item.recu;
+        item.prevuField = prevuField;
+      return  await fetchData(`http://10.16.50.36:8000/notmet/test?date=${new Date(date)
+        .toLocaleDateString("pt-br")
+        .split("/")
+        .reverse()
+        .join("-")}&&station=${stationId}`, item, prevuField)
+      })); 
+      console.log("grpp",groupedData2)
+      /******************** */
+      Promise.all(groupedData2)
+  .then((resolvedValues) => {
+    // `resolvedValues` will be an array of the resolved values of each promise
+    const arrayOfObjects = resolvedValues.map((resolvedValue) => {
+      // Return the desired object structure
+      console.log("resolvedValue", resolvedValue)
+      return (resolvedValue) 
+        // ...other properties
+      
+    });
+  return arrayOfObjects
+    console.log(arrayOfObjects); // Array of objects
+  })
+  .catch((error) => {
+    // Handle any errors that occurred during promise resolution
+    console.error(error);
+  });
+ 
+   //    groupedData2.then(res => setData()) ;
+      
+},[groupedDataMessage])
+
+useEffect(() => {
+  if(!groupedDataMessage) return;
+  asynData(groupedDataMessage);
+},[groupedDataMessage,stat, typeMessage, ])
+
+  return (
+    <TabView>
+      <TabPanel header="Classification" leftIcon="pi pi-calendar mr-2">
+        <div className="grid">
+          <div className="col-4">
+            <label htmlFor="spacekey" className="font-bold block mb-2">
+              Message d'observation
+            </label>
+            <Dropdown
+              value={typeMessage}
+              onChange={(e) => setTypeMessage(e.value)}
+              options={types_message}
+              optionLabel="name"
+              editable
+              placeholder="Choisir le type d'observation"
+              className="w-full md:w-14rem"
+            />
+          </div>
+          <div className="col-4">
+            <label htmlFor="spacekey" className="font-bold block mb-2">
+              critère de classification
+            </label>
+            <Dropdown
+              value={critère}
+              onChange={(e) => setCritère(e.value)}
+              options={critères}
+              optionLabel="name"
+              editable
+              placeholder="Choisir un critère"
+              className="w-full md:w-14rem"
+            />
+          </div>
+          <div className="col-4">
+            <label htmlFor="spacekey" className="font-bold block mb-2">
+              Date de production
+            </label>
+            {/* <Calendar
+                  value={month}
+                  onChange={(e) => setMonth(e.value)}
+                  view="month"
+                  dateFormat="mm/yy"
+                  showIcon
+            />*/}
+            <Calendar
+              value={date}
+              onChange={(e) => setDate(e.value)}
+              dateFormat="dd-mm-yy"
+              showIcon
+            />
+            <Calendar
+              value={date2}
+              onChange={(e) => setDate2(e.value)}
+              dateFormat="dd-mm-yy"
+              showIcon
+            />
+          </div>
+        </div>
+        <Tooltip target=".export-buttons>button" position="bottom" />
+        <DataTable
+          size="small"
+          // ref={dt}
+          rows={10}
+          style={{ fontSize: "0.75em", minHeight: "100%" }}
+          value={typeMessage  && data ?  data : stat}
+          //header={header}
+          tableStyle={{ minWidth: "50rem" }}
+          rowHover
+          scrollable={true}
+          scrollHeight={"300px"}
+          loading={loading}
+          paginator
+          dataKey="id"
+          //filters={filters}
+          filterDisplay="row"
+          globalFilterFields={[
+            "station.nomStation",
+            "station.codeOMM",
+            "station.codeOACI",
+          ]}
+          emptyMessage="Pas de classement."
+          paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
+          rowsPerPageOptions={[10, 25, 50]}
+        >
+          {columns.map((col, i) => (
+            <Column
+              key={col.field}
+              field={col.field}
+              sortable
+              header={col.header}
+            />
+          ))}
+          <Column
+            key={critère}
+            field={critère}
+            sortable
+            header={critère === "tauxProd" ? "Taux de production" : critère}
+          />
+        </DataTable>
+      </TabPanel>
+    </TabView>
+  );
+}
+
+export default PerformanceStation;
