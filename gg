@@ -1,0 +1,163 @@
+ 
+  /*const getNotmet = useCallback((date, stationId) => {
+    let notmet2 = null;
+    axios
+      .get(
+        `http://10.16.50.36:8000/notmet/test?date=${new Date(date)
+          .toLocaleDateString("pt-br")
+          .split("/")
+          .reverse()
+          .join("-")}&&station=${stationId}`
+      )
+      .then((response) => {
+        console.log("res", response.data[0]);
+        setNotmet(response.data[0])
+       //  notmet2 = response.data[0];
+       // console.log("notmet2 inside::::::::::::::", notmet2);
+       //  return notmet2
+      });
+      
+  
+  },[stationId,date]);*/
+  
+  function getItem(notmet2, item, prevuField){
+    let prevu ;
+    const recu = item.recu;
+    let obj;
+    if(notmet2!== undefined) { 
+      if(prevuField === "SM") { 
+         prevu = notmet2.nv_prevuS;
+        obj = {
+          ...item,
+          manquants: notmet2?.nv_prevuS - recu,
+          tauxProd: ((recu / notmet2?.nv_prevuS) * 100).toFixed(2),
+        };
+       }
+       else if(prevuField === "SA" && notmet2!== undefined )
+               prevu = notmet2.nv_prevuM;  
+               obj = {
+                  ...item,
+                  manquants: notmet2?.nv_prevuM - recu,
+                  tauxProd: ((recu / notmet2?.nv_prevuM) * 100).toFixed(2),
+                }; 
+          }
+    else if(notmet2 == undefined) {
+      prevu = item[prevuField]
+      obj = {
+        ...item,
+        manquants: item[prevuField] - recu,
+        tauxProd: ((recu / item[prevuField]) * 100).toFixed(2),
+      };
+     }
+     return(obj)
+  }
+ // const [stationId, setStationId] = useState(null);
+  const [groupedData, setGroupedData] = useState(null);
+  const fetchData = async (url, item, prevuField) => {
+    try {
+      const response = await axios.get(url);
+      let notmet2 = response.data[0];
+      const itemobj = getItem(notmet2, item, prevuField);
+      //console.log("itemobj", itemobj)
+      if(itemobj) return itemobj;
+    } catch (error) {
+      // Handle any errors that occur during the request
+      console.error('Error:', error);
+      throw error;
+    }
+  };
+  const [dataSorted,setDataSorted] = useState([]);
+
+  async function  asynData(){ 
+    const groupedData2 = await Promise.all(groupedDataMessage.map(async(item) => {
+      try{
+        const prevuField = getMsgPrevuField(typeMessage);
+        const stationId = item.values[0].station.idStation;
+        const recu = item.recu;
+        item.prevuField = prevuField;
+        return  await fetchData(`http://10.16.50.36:8000/notmet/test?date=${new Date(date)
+        .toLocaleDateString("pt-br")
+        .split("/")
+        .reverse()
+        .join("-")}&&station=${stationId}`, item, prevuField);
+      //  let notmet2 = null;
+         /*axios
+          .get(
+            `http://10.16.50.36:8000/notmet/test?date=${new Date(date)
+              .toLocaleDateString("pt-br")
+              .split("/")
+              .reverse()
+              .join("-")}&&station=${stationId}`
+          )
+          .then((response) => {
+           let notmet2 = response.data[0];
+           const itemobj = getItem(notmet2, item, prevuField);
+           console.log("itemobj", itemobj)
+          if(itemobj) return itemobj;
+          });*/
+      }catch(err) { console.log("err promise all")}
+
+    
+  }));
+  console.log("groupedData2 inside pro",groupedData2)
+
+  let cpt = 1;
+ // if(groupedData2)  addClassification(groupedData2,critère)
+      
+  // setGroupedData(groupedData2)
+  //return groupedData2
+  return groupedData2;
+   }
+
+ 
+  
+  async function example() {
+    const resultArray = await asynData();
+    // Access the resolved array here
+    console.log(resultArray);
+    return (resultArray)
+  }
+
+  const statMessages = useCallback((stat, groupedDataMessage) => {
+   
+    if(!groupedDataMessage) return;
+    const groupedData2 =asynData();
+    console.log("groupedData2", groupedData2);
+    return(groupedData2);
+     const res = example().then((res) => res);
+     console.log("reeeeeees", res);
+      // return addClassification(res, critère);
+  
+    
+  },
+    [typeMessage, date, critère, stat,groupedDataMessage]
+  );
+
+  const addClassification = useCallback((data, critère) => {
+    if(!data) return;
+    let cpt = 1;
+     data
+      .sort((a, b) =>
+        critère === "tauxProd"
+          ? b.tauxProd - a.tauxProd
+          : critère === "manquants"
+          ? a.manquants - b.manquants
+          : ""
+      )
+      .map((item, id) => {
+        if (id === 0) return { ...item, classification: 1 };
+        if (item.tauxProd === data[id - 1].tauxProd) {
+          return {
+            ...item,
+            classification: cpt,
+          };
+        } else {
+          cpt = id + 1;
+          return {
+            ...item,
+            classification: id + 1,
+          };
+        }
+      });
+      setDataSorted(data)
+  }, [typeMessage, date, critère, stat,groupedDataMessage]);
